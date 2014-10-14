@@ -9,9 +9,10 @@ x3270.freetypeFont resource should be used to specify FreeType font name in [Xft
 ```
 Example: monospace-12. If you don't specify x3270.freetypeFont then x3270 acts as always.
 
-This patch should be applied to 3.3.15ga4 version of x3270 using:
+This patch should be applied to [3.3.15ga4 version of x3270] using:
 ```sh
 cd x3270-3.3 && patch -p1 <x3270.patch
 ```
 
 [Xft format]:http://www.keithp.com/~keithp/render/Xft.tutorial
+[3.3.15ga4 version of x3270]:http://prdownloads.sourceforge.net/x3270/suite3270-3.3.15ga4-src.tgz?download
