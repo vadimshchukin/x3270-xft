@@ -1,0 +1,240 @@
+diff -ruN x3270/Makefile.in x3270-xft/Makefile.in
+--- x3270/Makefile.in	2014-10-14 14:30:45.002661678 +0600
++++ x3270-xft/Makefile.in	2014-10-14 11:20:51.162765340 +0600
+@@ -32,3 +32,3 @@ CC = @CC@
+ SRCS = Cme.c CmeBSB.c CmeLine.c CmplxMenu.c Husk.c about.c actions.c ansi.c \
+-	apl.c charset.c child.c ctlr.c dialog.c display8.c fprint_screen.c \
++	apl.c charset.c charconv.c child.c ctlr.c dialog.c display8.c fprint_screen.c \
+ 	ft.c ft_cut.c ft_dft.c host.c idle.c keymap.c keypad.c keysym2ucs.c \
+@@ -40,3 +40,3 @@ SRCS = Cme.c CmeBSB.c CmeLine.c CmplxMen
+ VOBJS = Cme.o CmeBSB.o CmeLine.o CmplxMenu.o Husk.o about.o actions.o ansi.o \
+-	apl.o charset.o child.o ctlr.o dialog.o display8.o fallbacks.o \
++	apl.o charset.o charconv.o child.o ctlr.o dialog.o display8.o fallbacks.o \
+ 	fprint_screen.o ft.o ft_cut.o ft_dft.o host.o idle.o keymap.o \
+@@ -76,3 +76,3 @@ CFLAGS = @CFLAGS@ $(XCPPFLAGS) $(CDEBUGF
+ LDFLAGS = @XLIB@ @LDFLAGS@
+-LIBS = @LIBS@ -lXaw -lXmu -lXt -lX11
++LIBS = @LIBS@ -lXaw -lXmu -lXt -lX11 -lXft
+ 
+diff -ruN x3270/appres.h x3270-xft/appres.h
+--- x3270/appres.h	2014-10-14 14:30:45.002661678 +0600
++++ x3270-xft/appres.h	2014-10-14 11:26:42.298762146 +0600
+@@ -185,2 +185,3 @@ typedef struct {
+ 	char	*efontname;
++    char    *ffontname; /* freetype font name */
+ 	char	*fixed_size;
+diff -ruN x3270/charconv.c x3270-xft/charconv.c
+--- x3270/charconv.c	1970-01-01 05:00:00.000000000 +0500
++++ x3270-xft/charconv.c	2014-10-14 11:08:00.290772354 +0600
+@@ -0,0 +1,67 @@
++/*
++ * Copyright (c) 2014, Vadim Shchukin.
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions are met:
++ *     * Redistributions of source code must retain the above copyright
++ *       notice, this list of conditions and the following disclaimer.
++ *     * Redistributions in binary form must reproduce the above copyright
++ *       notice, this list of conditions and the following disclaimer in the
++ *       documentation and/or other materials provided with the distribution.
++ *     * Neither the names of Paul Mattes nor the names of his contributors
++ *       may be used to endorse or promote products derived from this software
++ *       without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY VADIM SHCHUKIN "AS IS" AND ANY EXPRESS OR IMPLIED
++ * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
++ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
++ * EVENT SHALL VADIM SHCHUKIN BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
++ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
++ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
++ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
++ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
++ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++/*
++ *  charconv.c
++ *      This module translates characters between encodings.
++ */
++
++#include "charconv.h"
++
++static uint8_t ebcdic_to_ascii_table[] = {
++/*0   1    2    3    4    5    6    7    8    9    A    B    C    D    E    F*/
++0x00,0x01,0x02,0x03,0x9C,0x09,0x86,0x7F,0x97,0x8D,0x8E,0x0B,0x0C,0x0D,0x0E,0x0F, /*0*/
++0x10,0x11,0x12,0x13,0x9D,0x0A,0x08,0x87,0x18,0x19,0x92,0x8F,0x1C,0x1D,0x1E,0x1F, /*1*/
++0x80,0x81,0x82,0x83,0x84,0x0A,0x17,0x1B,0x88,0x89,0x8A,0x8B,0x8C,0x05,0x06,0x07, /*2*/
++0x90,0x91,0x16,0x93,0x94,0x95,0x96,0x04,0x98,0x99,0x9A,0x9B,0x14,0x15,0x9E,0x1A, /*3*/
++0x20,0xA0,0xA1,0xA2,0xA3,0xA4,0xA5,0xA6,0xA7,0xA8,0x5B,0x2E,0x3C,0x28,0x2B,0x7C, /*4*/
++0x26,0xA9,0xAA,0xAB,0xAC,0xAD,0xAE,0xAF,0xB0,0xB1,0x21,0x24,0x2A,0x29,0x3B,0x5E, /*5*/
++0x2D,0x2F,0xB2,0xB3,0xB4,0xB5,0xB6,0xB7,0xB8,0xB9,0x7C,0x2C,0x25,0x5F,0x3E,0x3F, /*6*/
++0xBA,0xBB,0xBC,0xBD,0xBE,0xBF,0xC0,0xC1,0xC2,0x60,0x3A,0x23,0x40,0x27,0x3D,0x22, /*7*/
++0xC3,0x61,0x62,0x63,0x64,0x65,0x66,0x67,0x68,0x69,0xC4,0xC5,0xC6,0xC7,0xC8,0xC9, /*8*/
++0xCA,0x6A,0x6B,0x6C,0x6D,0x6E,0x6F,0x70,0x71,0x72,0xCB,0xCC,0xCD,0xCE,0xCF,0xD0, /*9*/
++0xD1,0x7E,0x73,0x74,0x75,0x76,0x77,0x78,0x79,0x7A,0xD2,0xD3,0xD4,0x5B,0xD6,0xD7, /*A*/
++0xD8,0xD9,0xDA,0xDB,0xDC,0xDD,0xDE,0xDF,0xE0,0xE1,0xE2,0xE3,0xE4,0x5D,0xE6,0xE7, /*B*/
++0x7B,0x41,0x42,0x43,0x44,0x45,0x46,0x47,0x48,0x49,0xE8,0xE9,0xEA,0xEB,0xEC,0xED, /*C*/
++0x7D,0x4A,0x4B,0x4C,0x4D,0x4E,0x4F,0x50,0x51,0x52,0xEE,0xEF,0xF0,0xF1,0xF2,0xF3, /*D*/
++0x5C,0x9F,0x53,0x54,0x55,0x56,0x57,0x58,0x59,0x5A,0xF4,0xF5,0xF6,0xF7,0xF8,0xF9, /*E*/
++0x30,0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39,0xFA,0xFB,0xFC,0xFD,0xFE,0xFF  /*F*/
++};
++
++uint16_t translate_ebcdic_to_utf16(uint16_t ch)
++{
++    switch (ch) {
++    case 0x0000: return L' ';
++    case 0x0184: return L'│';
++    case 0x0192: return L'─';
++    case 0x01a3: return L'└';
++    case 0x01a4: return L'┌';
++    case 0x01ac: return L'┘';
++    case 0x01ad: return L'┐';
++    default: return ebcdic_to_ascii_table[ch & 0xff];
++    }
++}
+\ No newline at end of file
+diff -ruN x3270/charconv.h x3270-xft/charconv.h
+--- x3270/charconv.h	1970-01-01 05:00:00.000000000 +0500
++++ x3270-xft/charconv.h	2014-10-14 11:05:24.778773769 +0600
+@@ -0,0 +1,30 @@
++/*
++ * Copyright (c) 2014, Vadim Shchukin.
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions are met:
++ *     * Redistributions of source code must retain the above copyright
++ *       notice, this list of conditions and the following disclaimer.
++ *     * Redistributions in binary form must reproduce the above copyright
++ *       notice, this list of conditions and the following disclaimer in the
++ *       documentation and/or other materials provided with the distribution.
++ *     * Neither the names of Paul Mattes nor the names of his contributors
++ *       may be used to endorse or promote products derived from this software
++ *       without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY VADIM SHCHUKIN "AS IS" AND ANY EXPRESS OR IMPLIED
++ * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
++ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
++ * EVENT SHALL VADIM SHCHUKIN BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
++ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
++ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
++ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
++ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
++ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#include <stdint.h>
++
++inline uint16_t translate_ebcdic_to_utf16(uint16_t ch);
+\ No newline at end of file
+diff -ruN x3270/resources.c x3270-xft/resources.c
+--- x3270/resources.c	2014-10-14 14:30:45.022661678 +0600
++++ x3270-xft/resources.c	2014-10-14 12:11:06.366737908 +0600
+@@ -90,2 +90,4 @@ XtResource resources[] = {
+ 	  offset(efontname), XtRString, 0 },
++    { ResFreetypeFont, ClsFreetypeFont, XtRString, sizeof(char *), /* freetype font name */
++      offset(ffontname), XtRString, 0 },
+ 	{ ResVisualBell, ClsVisualBell, XtRBoolean, sizeof(Boolean),
+diff -ruN x3270/resources.h x3270-xft/resources.h
+--- x3270/resources.h	2014-10-14 14:30:45.026661678 +0600
++++ x3270-xft/resources.h	2014-10-14 09:25:11.914828474 +0600
+@@ -91,2 +91,3 @@
+ #define ResEmulatorFont		"emulatorFont"
++#define ResFreetypeFont     "freetypeFont"
+ #define ResEof			"eof"
+@@ -301,2 +302,3 @@
+ #define ClsEmulatorFont		"EmulatorFont"
++#define ClsFreetypeFont        "FreetypeFont"
+ #define ClsEof			"Eof"
+diff -ruN x3270/screen.c x3270-xft/screen.c
+--- x3270/screen.c	2014-10-14 14:30:45.006661678 +0600
++++ x3270-xft/screen.c	2014-10-14 12:15:28.034735527 +0600
+@@ -63,2 +63,3 @@
+ #include "charsetc.h"
++#include "charconv.h"
+ #include "ctlrc.h"
+@@ -323,2 +324,6 @@ Font           *fid = &nss.fid;
+ 
++/* Xft globals. */
++XftDraw *xft_draw;
++XftFont *xft_font;
++
+ /* Mouse-cursor state */
+@@ -807,2 +812,10 @@ screen_reinit(unsigned cmask)
+ 	nss.window = XtWindow(nss.widget);
++
++    if (appres.ffontname) {
++        /* Initialize Xft */
++    	xft_draw = XftDrawCreate(display, nss.window, DefaultVisual(display, default_screen),
++    		DefaultColormap(display, default_screen));
++    	xft_font = XftFontOpenName(display, default_screen, appres.ffontname);
++    }
++
+ 	set_mcursor();
+@@ -1777,2 +1790,5 @@ font_index(ebc_t ebc, int d8_ix, Boolean
+ {
++	if (appres.ffontname)
++        return ebc;
++
+ 	ucs4_t ucs4;
+@@ -1905,2 +1921,26 @@ linedraw_to_udisplay(int d8_ix, unsigned
+ /*
++ * Render freetype text onto the X display.
++ */
++void xft_draw_string(GC gc, XTextItem16 *text_items, int x, int y)
++{
++    XGCValues xgc_values;
++    /* Get graphics context's foreground color */
++    XGetGCValues(display, gc, GCForeground, &xgc_values);
++    XRenderColor xr_color = {0x00ff, 0x00ff, 0x00ff, 0xffff};
++    /* Convert GC color to XRenderColor */
++    memcpy((char*)&xr_color.red + 1, (char*)&xgc_values.foreground + 2, 1);
++    memcpy((char*)&xr_color.green + 1, (char*)&xgc_values.foreground + 1, 1);
++    memcpy((char*)&xr_color.blue + 1, (char*)&xgc_values.foreground + 0, 1);
++    XftColor xft_color;
++    /* Allocate XftColor from XRenderColor */
++    XftColorAllocValue(display, DefaultVisual(display, default_screen),
++        DefaultColormap(display, default_screen), &xr_color, &xft_color);
++    XftDrawString16(xft_draw, &xft_color, xft_font, x, y,
++        (XftChar16*)text_items->chars, text_items->nchars);
++    /* Free XftColor */
++    XftColorFree(display, DefaultVisual(display, default_screen),
++        DefaultColormap(display, default_screen), &xft_color);
++}
++
++/*
+  * Render text onto the X display.  The region must not span lines.
+@@ -2234,3 +2274,12 @@ render_text(union sp *buffer, int baddr,
+ 	} else {
+-		XDrawText16(display, ss->window, dgc, x, y, text, n_texts);
++        if (appres.ffontname) {
++            int i;
++            for (i = 0; i < text->nchars; i++) {
++                uint16_t *wc = (uint16_t*)&text->chars[i];
++                /* Swap bytes & translate dbcs ebcdic to utf16 */
++                *wc = translate_ebcdic_to_utf16((*wc << 8) | (*wc >> 8));
++            }
++            xft_draw_string(dgc, text, x, y);
++        } else
++            XDrawText16(display, ss->window, dgc, x, y, text, n_texts);
+ 		if (ss->overstrike &&
+diff -ruN x3270/screenc.h x3270-xft/screenc.h
+--- x3270/screenc.h	2014-10-14 14:30:45.002661678 +0600
++++ x3270-xft/screenc.h	2014-10-14 11:41:45.330753930 +0600
+@@ -34,2 +34,4 @@
+ 
++#include <X11/Xft/Xft.h>
++
+ extern Boolean efont_changed;
+@@ -44,2 +46,4 @@ extern Window *screen_window;
+ extern Boolean scrollbar_changed;
++extern XftDraw *xft_draw;
++extern XftFont *xft_font;
+ #if defined(X3270_DBCS) /*[*/
+@@ -124,2 +128,3 @@ extern void toggle_scrollBar(struct togg
+ extern void toggle_visible_control(struct toggle *t, enum toggle_type tt);
++inline void xft_draw_string(GC gc, XTextItem16 *text_items, int x, int y);
+ 
