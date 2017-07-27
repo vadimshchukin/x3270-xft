@@ -16,6 +16,6 @@ cd x3270-3.3 && patch -p1 <x3270.patch
 make
 ```
 
-[x3270]:http://x3270.bgp.nu/
+[x3270 terminal emulator]:http://x3270.bgp.nu/
 [the Xft format]:http://www.keithp.com/~keithp/render/Xft.tutorial
 [the 3.3.15ga4 version of x3270]:http://prdownloads.sourceforge.net/x3270/suite3270-3.3.15ga4-src.tgz?download
